@@ -22,7 +22,7 @@ Hooks.once("init", () => {
 
   game.modules.get(MODULE_ID).api = {
     socketEvent: SOCKET_EVENT,
-    version: "0.1.3"
+    version: "0.1.4"
   };
 });
 
