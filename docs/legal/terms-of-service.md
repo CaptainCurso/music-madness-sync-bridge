@@ -1,4 +1,4 @@
-# Music and Madness Discord Bot Terms of Service
+# Music and Madness Bot Terms of Service
 
 Last updated: February 17, 2026
 
