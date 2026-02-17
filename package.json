@@ -1,0 +1,48 @@
+{
+  "name": "music-madness-sync-bridge",
+  "version": "0.1.0",
+  "description": "FoundryVTT <-> Notion Story Bible sync bridge with MCP tools",
+  "type": "module",
+  "main": "dist/src/cli.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "sync:preview": "npm run build --silent && node dist/src/cli.js sync preview",
+    "sync:apply": "npm run build --silent && node dist/src/cli.js sync apply",
+    "sync:conflicts": "npm run build --silent && node dist/src/cli.js sync conflicts",
+    "sync:resolve": "npm run build --silent && node dist/src/cli.js sync resolve",
+    "mcp:start": "npm run build --silent && node dist/src/mcp/server.js",
+    "test": "npm run build --silent && node dist/tests/smoke.js",
+    "foundry:mock-api": "npm run build --silent && node dist/src/foundry/mock-api-server.js",
+    "foundry:proxy": "npm run build --silent && node dist/src/foundry/socket-proxy-server.js",
+    "health:remote": "npm run build --silent && node dist/src/cli.js health:remote",
+    "doctor": "npm run build --silent && node dist/src/cli.js doctor",
+    "module:prepare-release": "node scripts/release/prepare-foundry-module.mjs"
+  },
+  "keywords": [
+    "foundryvtt",
+    "notion",
+    "mcp",
+    "sync"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@notionhq/client": "^5.9.0",
+    "commander": "^13.1.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
+    "socket.io-client": "^4.8.3",
+    "sql.js": "^1.14.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.3",
+    "@types/sql.js": "^1.4.9",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "MMBridge.Settings.BridgeToken.Name": "Bridge Token",
+  "MMBridge.Settings.BridgeToken.Hint": "Shared secret used by the external sync bridge.",
+  "MMBridge.Settings.ReadEnabled.Name": "Enable Read Bridge",
+  "MMBridge.Settings.ReadEnabled.Hint": "Allows authenticated read requests over module socket events."
+}

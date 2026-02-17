@@ -1,0 +1,29 @@
+{
+  "id": "music-madness-bridge",
+  "title": "Music and Madness Bridge",
+  "description": "Authenticated journal/media read bridge for external sync services.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "13"
+  },
+  "authors": [
+    {
+      "name": "Music and Madness"
+    }
+  ],
+  "esmodules": [
+    "scripts/bridge.js"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "",
+  "manifest": "",
+  "download": "",
+  "license": "MIT"
+}

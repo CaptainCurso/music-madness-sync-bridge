@@ -1,0 +1,27 @@
+{
+  "journals": [
+    {
+      "id": "journal-bral-001",
+      "name": "Bral Dockside Incidents",
+      "updatedAt": "2026-02-16T12:00:00.000Z",
+      "aliases": ["Bral Dock Report"],
+      "content": "<p>Dockside tensions continue between embargo inspectors and black-market brokers.</p>",
+      "media": []
+    },
+    {
+      "id": "journal-mistralis-001",
+      "name": "Mistralis Survey Notes",
+      "updatedAt": "2026-02-16T13:00:00.000Z",
+      "aliases": ["Mistralis Recon"],
+      "content": "<p>Asteroid chain mapping indicates three hidden anchor points.</p>",
+      "media": []
+    }
+  ],
+  "changes": [
+    {
+      "type": "journal",
+      "id": "journal-bral-001",
+      "updatedAt": "2026-02-16T12:00:00.000Z"
+    }
+  ]
+}
