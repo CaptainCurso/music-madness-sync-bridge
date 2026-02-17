@@ -17,7 +17,8 @@
     "foundry:proxy": "npm run build --silent && node dist/src/foundry/socket-proxy-server.js",
     "health:remote": "npm run build --silent && node dist/src/cli.js health:remote",
     "doctor": "npm run build --silent && node dist/src/cli.js doctor",
-    "module:prepare-release": "node scripts/release/prepare-foundry-module.mjs"
+    "module:prepare-release": "node scripts/release/prepare-foundry-module.mjs",
+    "module:publish-release": "node scripts/release/publish-github-release.mjs"
   },
   "keywords": [
     "foundryvtt",
