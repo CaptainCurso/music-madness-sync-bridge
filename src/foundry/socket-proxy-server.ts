@@ -120,7 +120,8 @@ function buildSocketClient(args: { siteUrl: string; sessionCookie: string; world
     withCredentials: true,
     extraHeaders: headers,
     query: {
-      world: args.world
+      world: args.world,
+      session: args.sessionCookie
     },
     reconnection: true,
     reconnectionAttempts: Infinity,
@@ -142,18 +143,20 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
   };
 
   return new Promise((resolve, reject) => {
+    let settled = false;
     const timeout = setTimeout(() => {
+      settled = true;
       socket.off(FOUNDRY_SOCKET_EVENT, onMessage);
+      socket.off("message", onEnvelopeMessage);
       reject(new Error(`Timeout waiting for Foundry module response for action '${action}'`));
     }, REQUEST_TIMEOUT_MS);
 
-    const onMessage = (message: any) => {
-      if (!message?.__mmBridgeResponse) return;
-      if (message?.requestId !== requestId) return;
-
+    const finalize = (response: any) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       socket.off(FOUNDRY_SOCKET_EVENT, onMessage);
-      const response = message?.reply;
+      socket.off("message", onEnvelopeMessage);
       if (!response?.ok) {
         reject(new Error(response?.error ?? "Unknown module error"));
         return;
@@ -161,7 +164,32 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
       resolve(response.data);
     };
 
+    const onMessage = (message: any) => {
+      if (!message?.__mmBridgeResponse) return;
+      if (message?.requestId !== requestId) return;
+      finalize(message?.reply);
+    };
+
+    const onEnvelopeMessage = (envelope: any) => {
+      if (!envelope || envelope.action !== FOUNDRY_SOCKET_EVENT) return;
+      const message = envelope.data;
+      if (!message?.__mmBridgeResponse) return;
+      if (message?.requestId !== requestId) return;
+      finalize(message?.reply);
+    };
+
     socket.on(FOUNDRY_SOCKET_EVENT, onMessage);
-    socket.emit(FOUNDRY_SOCKET_EVENT, requestPayload);
+    socket.on("message", onEnvelopeMessage);
+    // Support both module response styles:
+    // - v0.1.0 callback ack style
+    // - v0.1.1 explicit socket response envelope
+    socket.emit(FOUNDRY_SOCKET_EVENT, requestPayload, (ackResponse: any) => {
+      if (ackResponse && typeof ackResponse === "object") {
+        finalize(ackResponse);
+      }
+    });
+    // Compatibility with Foundry deployments that route custom socket traffic through
+    // the generic "message" event envelope.
+    socket.emit("message", { action: FOUNDRY_SOCKET_EVENT, data: requestPayload });
   });
 }
