@@ -1,4 +1,4 @@
-# Music and Madness Discord Bot Privacy Policy
+# Music and Madness Bot Privacy Policy
 
 Last updated: February 17, 2026
 
