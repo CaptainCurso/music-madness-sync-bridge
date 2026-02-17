@@ -1,6 +1,6 @@
 {
   "name": "music-madness-sync-bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "FoundryVTT <-> Notion Story Bible sync bridge with MCP tools",
   "type": "module",
   "main": "dist/src/cli.js",
@@ -12,7 +12,7 @@
     "sync:conflicts": "npm run build --silent && node dist/src/cli.js sync conflicts",
     "sync:resolve": "npm run build --silent && node dist/src/cli.js sync resolve",
     "mcp:start": "npm run build --silent && node dist/src/mcp/server.js",
-    "test": "npm run build --silent && node dist/tests/smoke.js",
+    "test": "npm run build --silent && node dist/tests/smoke.js && node dist/tests/proxy-lifecycle.js",
     "foundry:mock-api": "npm run build --silent && node dist/src/foundry/mock-api-server.js",
     "foundry:proxy": "npm run build --silent && node dist/src/foundry/socket-proxy-server.js",
     "health:remote": "npm run build --silent && node dist/src/cli.js health:remote",

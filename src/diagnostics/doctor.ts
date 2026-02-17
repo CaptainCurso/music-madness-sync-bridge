@@ -30,10 +30,7 @@ export function runDoctor(): DoctorReport {
     "FOUNDRY_WORLD",
     "FOUNDRY_SESSION_COOKIE",
     "NOTION_API_KEY",
-    "NOTION_STORY_BIBLE_PAGE_ID",
-    "NOTION_ALLOWED_DATABASE_IDS",
-    "NOTION_DEFAULT_TARGET_DB_ID",
-    "NOTION_TITLE_PROPERTY"
+    "NOTION_STORY_BIBLE_PAGE_ID"
   ] as const;
 
   for (const key of required) {
@@ -53,25 +50,11 @@ export function runDoctor(): DoctorReport {
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-
   checks.push({
-    name: "notion:allowed_db_ids_non_empty",
-    ok: dbIds.length > 0,
-    detail: dbIds.length > 0 ? `${dbIds.length} ids` : "none provided",
-    severity: "error"
-  });
-
-  const defaultDb = process.env.NOTION_DEFAULT_TARGET_DB_ID?.trim() ?? "";
-  checks.push({
-    name: "notion:default_db_in_allowed_list",
-    ok: defaultDb.length > 0 && dbIds.includes(defaultDb),
-    detail:
-      defaultDb.length === 0
-        ? "NOTION_DEFAULT_TARGET_DB_ID missing"
-        : dbIds.includes(defaultDb)
-          ? "ok"
-          : "default target db is not in NOTION_ALLOWED_DATABASE_IDS",
-    severity: "error"
+    name: "notion:allowed_db_ids_optional",
+    ok: true,
+    detail: dbIds.length ? `${dbIds.length} database ids configured (optional for wiki mode)` : "not configured",
+    severity: "warn"
   });
 
   const proxyPort = Number(process.env.FOUNDRY_PROXY_PORT ?? "8788");

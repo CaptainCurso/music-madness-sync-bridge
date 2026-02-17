@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { createAppContext } from "./app-context.js";
 import { runRemoteHealth } from "./diagnostics/remote-health.js";
 import { runDoctor } from "./diagnostics/doctor.js";
+import { ensureProxyForSync } from "./foundry/proxy-lifecycle.js";
 
 const program = new Command();
 program.name("music-madness-sync").description("Foundry <-> Story Bible sync operator CLI");
@@ -15,24 +16,34 @@ syncCommand
   .option("--journal-id <id...>", "Specific Foundry journal IDs")
   .action(async (options) => {
     const app = await createAppContext();
-    const result = await app.sync.preview({ journalIds: options.journalId, dryRun: true });
-    console.log(JSON.stringify(result, null, 2));
+    const proxy = await ensureProxyForSync(app.config, { label: "sync preview" });
+    try {
+      const result = await app.sync.preview({ journalIds: options.journalId, dryRun: true });
+      console.log(JSON.stringify(result, null, 2));
+    } finally {
+      await proxy.stop();
+    }
   });
 
 syncCommand
   .command("apply")
   .description("Apply Foundry -> Notion mirror updates")
   .option("--journal-id <id...>", "Specific Foundry journal IDs")
-  .option("--include-media", "Copy and register media", false)
+  .option("--no-include-media", "Disable media download/linking (enabled by default)")
   .option("--mode <mode>", "incremental|full", "incremental")
   .action(async (options) => {
     const app = await createAppContext();
-    const result = await app.sync.apply({
-      journalIds: options.journalId,
-      includeMedia: Boolean(options.includeMedia),
-      mode: options.mode
-    });
-    console.log(JSON.stringify(result, null, 2));
+    const proxy = await ensureProxyForSync(app.config, { label: "sync apply" });
+    try {
+      const result = await app.sync.apply({
+        journalIds: options.journalId,
+        includeMedia: Boolean(options.includeMedia),
+        mode: options.mode
+      });
+      console.log(JSON.stringify(result, null, 2));
+    } finally {
+      await proxy.stop();
+    }
   });
 
 syncCommand

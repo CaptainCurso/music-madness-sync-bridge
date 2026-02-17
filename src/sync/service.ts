@@ -7,6 +7,7 @@ import { MediaPipeline } from "../media/pipeline.js";
 import { NotionAdapter } from "../notion/adapter.js";
 import { StateStore } from "../state/store.js";
 import type {
+  FoundryFolder,
   FoundryJournal,
   JournalPreviewItem,
   SyncConflict,
@@ -54,19 +55,12 @@ export class SyncService {
 
     for (const journal of journals) {
       const sourceHash = hashJournal(journal);
-      const notionPageId = await this.notion.findPageByCanonicalOrAlias(journal.name, journal.aliases ?? []);
+      const notionPageId = await this.notion.findPageByCanonicalOrAlias(
+        journal.name,
+        journal.aliases ?? [],
+        journal.folderPath ?? []
+      );
       const map = this.state.getSyncMap(journal.id);
-
-      if (!notionPageId && !this.config.notionDefaultTargetDbId) {
-        items.push({
-          journalId: journal.id,
-          title: journal.name,
-          action: "skip",
-          reason: "No canonical page match and NOTION_DEFAULT_TARGET_DB_ID is not configured.",
-          sourceHash
-        });
-        continue;
-      }
 
       if (map && notionPageId) {
         const maybeConflict = await this.detectConflict(map, sourceHash, notionPageId);
@@ -131,16 +125,18 @@ export class SyncService {
         }
 
         const notionPageId =
-          item.notionPageId ?? (await this.notion.createStoryBiblePage(journal.name, "Foundry Journal"));
+          item.notionPageId ??
+          (await this.notion.ensureJournalPage(journal.name, journal.folderPath ?? [], "Foundry Journal"));
 
-        const mediaCopies = options.includeMedia ? await this.media.copyAll(journal.media ?? []) : [];
-        const mirrorLines = buildMirrorLines(journal, mediaCopies, options.includeMedia ?? false);
-        const targetHash = sha256(mirrorLines.join("\n"));
+        const shouldIncludeMedia = options.includeMedia !== false;
+        const mediaCopies = shouldIncludeMedia ? await this.media.copyAll(journal.media ?? []) : [];
+        const mirrorPayload = buildMirrorPayload(journal, mediaCopies, shouldIncludeMedia);
+        const targetHash = sha256(JSON.stringify(mirrorPayload));
         const existingMap = this.state.getSyncMap(journal.id);
 
         const upsert = await this.notion.upsertFoundryMirror(
           notionPageId,
-          mirrorLines,
+          mirrorPayload,
           existingMap?.notion_mirror_block_id
         );
 
@@ -205,19 +201,50 @@ export class SyncService {
   }
 
   private async loadJournals(journalIds?: string[]): Promise<FoundryJournal[]> {
+    const summaries = await this.foundry.listJournals({ limit: 200 });
+    const summaryById = new Map(summaries.map((s) => [s.id, s]));
+    const foldersById = new Map<string, FoundryFolder>();
+
+    try {
+      const folders = await this.foundry.listFolders();
+      for (const folder of folders) {
+        foldersById.set(folder.id, folder);
+      }
+    } catch {
+      // Older Foundry module versions do not expose /folders yet.
+    }
+
     if (journalIds?.length) {
       const items: FoundryJournal[] = [];
       for (const id of journalIds) {
-        items.push(await this.foundry.getJournal(id));
+        const journal = await this.foundry.getJournal(id);
+        const summary = summaryById.get(id);
+        const folderId = journal.folderId ?? summary?.folderId;
+        items.push({
+          ...journal,
+          folderId,
+          folderPath:
+            journal.folderPath ??
+            summary?.folderPath ??
+            resolveFolderPath(folderId, foldersById)
+        });
       }
       return items;
     }
 
-    const summaries = await this.foundry.listJournals({ limit: 200 });
     const journals: FoundryJournal[] = [];
 
     for (const summary of summaries) {
-      journals.push(await this.foundry.getJournal(summary.id));
+      const journal = await this.foundry.getJournal(summary.id);
+      const folderId = journal.folderId ?? summary.folderId;
+      journals.push({
+        ...journal,
+        folderId,
+        folderPath:
+          journal.folderPath ??
+          summary.folderPath ??
+          resolveFolderPath(folderId, foldersById)
+      });
     }
 
     return journals;
@@ -261,6 +288,7 @@ function hashJournal(journal: FoundryJournal): string {
     id: journal.id,
     name: journal.name,
     aliases: journal.aliases ?? [],
+    folderPath: journal.folderPath ?? [],
     updatedAt: journal.updatedAt,
     content: journal.content,
     media: (journal.media ?? []).map((m) => ({
@@ -273,48 +301,79 @@ function hashJournal(journal: FoundryJournal): string {
   return sha256(basis);
 }
 
-function buildMirrorLines(
+function buildMirrorPayload(
   journal: FoundryJournal,
   media: Array<{ storedReference: string; sourceUrl: string; checksum: string; sizeBytes: number; foundryAssetId: string }>,
   includeMedia: boolean
-): string[] {
-  const lines: string[] = [];
-  lines.push(`Canonical Name: ${journal.name}`);
-  lines.push(`Foundry Journal ID: ${journal.id}`);
-  lines.push(`Last Synced: ${new Date().toISOString()}`);
-  lines.push(`Foundry Updated At: ${journal.updatedAt ?? "unknown"}`);
-  lines.push(`Aliases: ${(journal.aliases ?? []).join("; ")}`);
-  lines.push("Type: Foundry Journal Mirror");
-  lines.push("Current Status: Active");
-  lines.push("Related Arcs: ");
-  lines.push("Related Entities: ");
-  lines.push("Related Locations: ");
-  lines.push("Continuity Notes: Auto-generated mirror content. Non-destructive update.");
-  lines.push("---");
-  lines.push("Content:");
+): {
+  metadataLines: string[];
+  contentText: string;
+  media: Array<{ storedReference: string; sourceUrl: string; checksum: string; sizeBytes: number; foundryAssetId: string }>;
+  includeMedia: boolean;
+} {
+  const metadataLines: string[] = [];
+  metadataLines.push(`Canonical Name: ${journal.name}`);
+  metadataLines.push(`Foundry Journal ID: ${journal.id}`);
+  metadataLines.push(`Last Synced: ${new Date().toISOString()}`);
+  metadataLines.push(`Foundry Updated At: ${journal.updatedAt ?? "unknown"}`);
+  metadataLines.push(`Foundry Folder Path: ${(journal.folderPath ?? []).join(" / ") || "(none)"}`);
+  metadataLines.push(`Aliases: ${(journal.aliases ?? []).join("; ") || "(none)"}`);
+  metadataLines.push("Type: Foundry Journal Mirror");
+  metadataLines.push("Current Status: Active");
+  metadataLines.push("Related Arcs: ");
+  metadataLines.push("Related Entities: ");
+  metadataLines.push("Related Locations: ");
+  metadataLines.push("Continuity Notes: Auto-generated mirror content. Non-destructive update.");
 
-  const cleanedContent = journal.content
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const contentText = htmlToReadableText(journal.content);
 
-  lines.push(cleanedContent.length ? cleanedContent : "(No content)");
+  return {
+    metadataLines,
+    contentText,
+    media,
+    includeMedia
+  };
+}
 
-  if (includeMedia) {
-    lines.push("---");
-    lines.push("Media:");
-    if (!media.length) {
-      lines.push("(No media found)");
-    } else {
-      for (const m of media) {
-        lines.push(
-          `- Asset ${m.foundryAssetId} | checksum=${m.checksum} | size=${m.sizeBytes} | source=${m.sourceUrl} | stored=${m.storedReference}`
-        );
-      }
-    }
+function resolveFolderPath(folderId: string | undefined, foldersById: Map<string, FoundryFolder>): string[] | undefined {
+  if (!folderId) return undefined;
+  const seen = new Set<string>();
+  const path: string[] = [];
+  let currentId: string | undefined = folderId;
+
+  while (currentId) {
+    if (seen.has(currentId)) break;
+    seen.add(currentId);
+
+    const folder = foldersById.get(currentId);
+    if (!folder) break;
+    path.unshift(folder.name);
+    currentId = folder.parentId;
   }
 
-  return lines;
+  return path.length ? path : undefined;
+}
+
+function htmlToReadableText(html: string): string {
+  if (!html?.trim()) return "(No content)";
+  const withBreaks = html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*p\s*>/gi, "\n\n")
+    .replace(/<\/\s*div\s*>/gi, "\n")
+    .replace(/<\/\s*h[1-6]\s*>/gi, "\n\n")
+    .replace(/<\/\s*li\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "- ");
+
+  const withoutTags = withBreaks.replace(/<[^>]*>/g, " ");
+  const normalized = withoutTags
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return normalized.length ? normalized : "(No content)";
 }
 
 function summarize(items: JournalPreviewItem[]) {

@@ -102,6 +102,15 @@ app.get("/journals/:id/media", async (req, res) => {
   }
 });
 
+app.get("/folders", async (_req, res) => {
+  try {
+    const data = await callModuleAction("list_folders", {});
+    res.json({ folders: data.folders ?? [] });
+  } catch (error) {
+    res.status(502).json({ error: String(error) });
+  }
+});
+
 app.get("/assets/:assetId", async (_req, res) => {
   res.status(501).json({
     error:

@@ -7,7 +7,7 @@ This project implements Stage 1 of your plan:
 - MCP tool surface for Codex/LLM orchestration
 - Full media copy to durable local storage
 - Conflict tracking with manual resolution
-- Non-destructive write scope lock to `Music and Madness Story Bible`
+- Non-destructive writes under `Music and Madness Story Bible` with a top-level `Journals` wiki tree
 
 ## Project layout
 
@@ -22,6 +22,7 @@ This project implements Stage 1 of your plan:
 
 - **MCP**: Model Context Protocol. Lets Codex call bridge tools like `sync.foundry_to_notion.apply`.
 - **Mirror block**: Generated section under `## Foundry Mirror` in a Notion page.
+- **Journals wiki tree**: A top-level Story Bible child page named `Journals`, with sub-pages matching Foundry folders.
 - **Conflict**: Source and target changed since last sync, requiring manual decision.
 
 ## Setup
@@ -36,7 +37,7 @@ cp .env.example .env
 2. Fill `.env` values:
 - Foundry URL/tokens
 - Notion key
-- Story Bible scope database IDs
+- Story Bible root page ID (`NOTION_STORY_BIBLE_PAGE_ID`)
 
 3. Typecheck.
 
@@ -52,11 +53,18 @@ Preview changes (no writes):
 npm run sync:preview
 ```
 
+`sync:preview` auto-starts the local proxy when `FOUNDRY_BASE_URL` is local (`127.0.0.1` / `localhost` / `::1`) and `FOUNDRY_AUTO_PROXY=1`.
+Preview/write targets are wiki pages under `Journals`, not Notion databases.
+
 Apply mirror updates:
 
 ```bash
-npm run sync:apply -- --include-media
+npm run sync:apply
 ```
+
+`sync:apply` has the same auto-proxy behavior and stops the proxy afterward only if this command started it.
+When creating a page, it mirrors Foundry folder structure under the `Journals` wiki tree.
+Media download/linking is enabled by default; disable with `--no-include-media`.
 
 List conflicts:
 
@@ -159,7 +167,7 @@ npm run foundry:proxy
 
 ```bash
 npm run sync:preview
-npm run sync:apply -- --include-media
+npm run sync:apply
 ```
 
 ### Session cookie note
@@ -198,7 +206,8 @@ You still need:
 
 ## Remote diagnostic command
 
-Run this before sync to verify remote Foundry + proxy health:
+Run this before sync to verify remote Foundry + proxy health.
+This command does **not** auto-start proxy; start it explicitly first with `npm run foundry:proxy`.
 
 ```bash
 npm run health:remote

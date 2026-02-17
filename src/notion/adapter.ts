@@ -1,6 +1,10 @@
 import { Client } from "@notionhq/client";
 import type { AppConfig } from "../config.js";
 
+const JOURNALS_ROOT_TITLE = "Journals";
+const NOTION_RICH_TEXT_MAX = 1900;
+const NOTION_CHILDREN_APPEND_LIMIT = 100;
+
 export class NotionAdapter {
   private readonly notion: Client;
 
@@ -8,62 +12,43 @@ export class NotionAdapter {
     this.notion = new Client({ auth: config.notionApiKey });
   }
 
-  async findPageByCanonicalOrAlias(canonicalName: string, aliases: string[]): Promise<string | undefined> {
+  async findPageByCanonicalOrAlias(
+    canonicalName: string,
+    aliases: string[],
+    folderPath: string[] = []
+  ): Promise<string | undefined> {
+    const parentPageId = await this.findFolderParentPageId(folderPath);
+    if (!parentPageId) return undefined;
+
     const terms = [canonicalName, ...aliases].map((x) => x.trim()).filter(Boolean);
     for (const term of terms) {
-      const response = await this.notion.search({
-        query: term,
-        filter: { value: "page", property: "object" },
-        page_size: 50
-      });
-
-      for (const result of response.results) {
-        if (result.object !== "page") continue;
-        const page = result as any;
-        const parentDbId = page.parent?.database_id as string | undefined;
-        if (!parentDbId || !this.config.notionAllowedDatabaseIds.includes(parentDbId)) continue;
-
-        const title = extractPageTitle(page).toLowerCase();
-        const aliasValues = extractAliases(page).map((x) => x.toLowerCase());
-
-        const normalizedCanonical = canonicalName.toLowerCase();
-        const normalizedAliases = aliases.map((x) => x.toLowerCase());
-
-        if (
-          title === normalizedCanonical ||
-          aliasValues.includes(normalizedCanonical) ||
-          normalizedAliases.some((a) => title === a || aliasValues.includes(a))
-        ) {
-          return page.id;
-        }
-      }
+      const existing = await this.findChildPageByTitle(parentPageId, term);
+      if (existing) return existing;
     }
 
     return undefined;
   }
 
-  async createStoryBiblePage(canonicalName: string, typeLabel = "Foundry Journal"): Promise<string> {
-    if (!this.config.notionDefaultTargetDbId) {
-      throw new Error(
-        "NOTION_DEFAULT_TARGET_DB_ID is required to create new pages when no canonical page match is found."
-      );
-    }
+  async ensureJournalPage(
+    canonicalName: string,
+    folderPath: string[],
+    typeLabel = "Foundry Journal"
+  ): Promise<string> {
+    const parentPageId = await this.ensureFolderParentPageId(folderPath);
+    const existing = await this.findChildPageByTitle(parentPageId, canonicalName);
+    if (existing) return existing;
 
-    if (!this.config.notionAllowedDatabaseIds.includes(this.config.notionDefaultTargetDbId)) {
-      throw new Error("NOTION_DEFAULT_TARGET_DB_ID must be included in NOTION_ALLOWED_DATABASE_IDS.");
-    }
-
-    const page = await this.notion.pages.create({
-      parent: { database_id: this.config.notionDefaultTargetDbId },
+    const created = await this.notion.pages.create({
+      parent: { page_id: parentPageId },
       properties: {
-        [this.config.notionTitleProperty]: {
+        title: {
           title: [{ type: "text", text: { content: canonicalName } }]
         }
       }
     } as any);
 
     await this.notion.blocks.children.append({
-      block_id: page.id,
+      block_id: created.id,
       children: [
         paragraph(`Canonical Name: ${canonicalName}`),
         paragraph("Aliases: "),
@@ -77,7 +62,11 @@ export class NotionAdapter {
       ]
     });
 
-    return page.id;
+    return created.id;
+  }
+
+  async createStoryBiblePage(canonicalName: string, typeLabel = "Foundry Journal"): Promise<string> {
+    return this.ensureJournalPage(canonicalName, [], typeLabel);
   }
 
   async getPageLastEdited(pageId: string): Promise<string> {
@@ -87,7 +76,18 @@ export class NotionAdapter {
 
   async upsertFoundryMirror(
     pageId: string,
-    mirrorLines: string[],
+    mirrorPayload: {
+      metadataLines: string[];
+      contentText: string;
+      media: Array<{
+        storedReference: string;
+        sourceUrl: string;
+        checksum: string;
+        sizeBytes: number;
+        foundryAssetId: string;
+      }>;
+      includeMedia: boolean;
+    },
     previousMirrorBlockId?: string | null
   ): Promise<{ mirrorBlockId: string }> {
     if (previousMirrorBlockId) {
@@ -117,58 +117,124 @@ export class NotionAdapter {
       });
     }
 
-    const generatedBlocks = toGeneratedBlocks(mirrorLines);
+    const generatedBlocks = toGeneratedBlocks(mirrorPayload);
 
-    const response = await this.notion.blocks.children.append({
+    const containerResponse = await this.notion.blocks.children.append({
       block_id: pageId,
       children: [
         {
-          toggle: {
+          callout: {
             rich_text: [
               {
                 type: "text",
                 text: {
-                  content: `Generated mirror content (auto) - ${new Date().toISOString()}`
+                  content: `Foundry Mirror (auto) - ${new Date().toISOString()}`
                 }
               }
-            ],
-            children: generatedBlocks
+            ]
           }
         }
       ] as any
     });
 
-    const first = response.results[0] as any;
-    return { mirrorBlockId: first.id };
+    const first = containerResponse.results[0] as any;
+    const containerId = first.id as string;
+
+    for (const chunk of chunkBlocks(generatedBlocks, NOTION_CHILDREN_APPEND_LIMIT)) {
+      await this.notion.blocks.children.append({
+        block_id: containerId,
+        children: chunk as any
+      });
+    }
+
+    return { mirrorBlockId: containerId };
+  }
+
+  private async findFolderParentPageId(folderPath: string[]): Promise<string | undefined> {
+    const rootId = await this.findJournalsRootPageId();
+    if (!rootId) return undefined;
+
+    let currentParent = rootId;
+    for (const segment of sanitizePath(folderPath)) {
+      const next = await this.findChildPageByTitle(currentParent, segment);
+      if (!next) return undefined;
+      currentParent = next;
+    }
+    return currentParent;
+  }
+
+  private async ensureFolderParentPageId(folderPath: string[]): Promise<string> {
+    let currentParent = await this.ensureJournalsRootPageId();
+    for (const segment of sanitizePath(folderPath)) {
+      currentParent = await this.ensureChildPageByTitle(currentParent, segment);
+    }
+    return currentParent;
+  }
+
+  private async findJournalsRootPageId(): Promise<string | undefined> {
+    return this.findChildPageByTitle(this.config.notionStoryBiblePageId, JOURNALS_ROOT_TITLE);
+  }
+
+  private async ensureJournalsRootPageId(): Promise<string> {
+    return this.ensureChildPageByTitle(this.config.notionStoryBiblePageId, JOURNALS_ROOT_TITLE);
+  }
+
+  private async ensureChildPageByTitle(parentPageId: string, title: string): Promise<string> {
+    const existing = await this.findChildPageByTitle(parentPageId, title);
+    if (existing) return existing;
+
+    const created = await this.notion.pages.create({
+      parent: { page_id: parentPageId },
+      properties: {
+        title: {
+          title: [{ type: "text", text: { content: title } }]
+        }
+      }
+    } as any);
+
+    return created.id;
+  }
+
+  private async findChildPageByTitle(parentPageId: string, title: string): Promise<string | undefined> {
+    const normalizedTarget = normalizeTitle(title);
+    const children = await this.listChildBlocks(parentPageId);
+    for (const block of children) {
+      if (block.type !== "child_page") continue;
+      const childTitle = normalizeTitle(block.child_page?.title ?? "");
+      if (childTitle === normalizedTarget) {
+        return block.id;
+      }
+    }
+    return undefined;
+  }
+
+  private async listChildBlocks(blockId: string): Promise<any[]> {
+    const rows: any[] = [];
+    let cursor: string | undefined;
+
+    while (true) {
+      const response = await this.notion.blocks.children.list({
+        block_id: blockId,
+        page_size: 100,
+        start_cursor: cursor
+      });
+      rows.push(...response.results);
+      if (!response.has_more || !response.next_cursor) break;
+      cursor = response.next_cursor;
+    }
+
+    return rows;
   }
 }
 
-function extractPageTitle(page: any): string {
-  const properties = page.properties ?? {};
-  for (const value of Object.values(properties)) {
-    const prop = value as any;
-    if (prop?.type === "title") {
-      return richTextToPlainText(prop.title ?? []);
-    }
-  }
-  return "";
+function normalizeTitle(value: string): string {
+  return value.trim().toLowerCase();
 }
 
-function extractAliases(page: any): string[] {
-  const properties = page.properties ?? {};
-  const aliases: string[] = [];
-
-  const byName = properties["Aliases"] as any;
-  if (byName) {
-    if (byName.type === "rich_text") {
-      aliases.push(...richTextToPlainText(byName.rich_text ?? []).split(/[;,]/).map((x: string) => x.trim()));
-    }
-    if (byName.type === "multi_select") {
-      aliases.push(...(byName.multi_select ?? []).map((x: any) => String(x.name)));
-    }
-  }
-
-  return aliases.filter(Boolean);
+function sanitizePath(segments: string[]): string[] {
+  return segments
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean);
 }
 
 function richTextToPlainText(richText: any[]): string {
@@ -188,15 +254,93 @@ function paragraph(text: string): any {
   };
 }
 
-function toGeneratedBlocks(lines: string[]): any[] {
+function toGeneratedBlocks(payload: {
+  metadataLines: string[];
+  contentText: string;
+  media: Array<{ storedReference: string; sourceUrl: string; checksum: string; sizeBytes: number; foundryAssetId: string }>;
+  includeMedia: boolean;
+}): any[] {
+  const blocks: any[] = [];
+
+  blocks.push({
+    toggle: {
+      rich_text: [{ type: "text", text: { content: "Sync Metadata (auto)" } }],
+      children: toParagraphBlocks(payload.metadataLines)
+    }
+  });
+
+  blocks.push({
+    heading_3: {
+      rich_text: [{ type: "text", text: { content: "Journal Content" } }]
+    }
+  });
+  blocks.push(...toParagraphBlocks(payload.contentText.split("\n")));
+
+  if (payload.includeMedia) {
+    blocks.push({
+      heading_3: {
+        rich_text: [{ type: "text", text: { content: "Downloaded Media" } }]
+      }
+    });
+    if (!payload.media.length) {
+      blocks.push(paragraph("(No media found)"));
+    } else {
+      for (const media of payload.media) {
+        if (isHttpUrl(media.storedReference) && isLikelyImageUrl(media.storedReference)) {
+          blocks.push({
+            image: {
+              type: "external",
+              external: {
+                url: media.storedReference
+              }
+            }
+          });
+        }
+
+        blocks.push(
+          paragraph(
+            `Asset ${media.foundryAssetId} | checksum=${media.checksum} | size=${media.sizeBytes} | source=${media.sourceUrl} | stored=${media.storedReference}`
+          )
+        );
+      }
+    }
+  }
+
+  return blocks;
+}
+
+function toParagraphBlocks(lines: string[]): any[] {
   const blocks: any[] = [];
   for (const line of lines) {
-    const safe = line.length > 1900 ? `${line.slice(0, 1896)}...` : line;
-    blocks.push(paragraph(safe));
-    if (blocks.length >= 90) {
-      blocks.push(paragraph("[Truncated at 90 generated lines to keep Notion updates safe.]"));
-      break;
+    const value = line.trim().length ? line : " ";
+    for (const segment of splitForNotion(value)) {
+      blocks.push(paragraph(segment));
     }
   }
   return blocks;
+}
+
+function splitForNotion(text: string): string[] {
+  if (!text) return [" "];
+  const parts: string[] = [];
+  for (let i = 0; i < text.length; i += NOTION_RICH_TEXT_MAX) {
+    parts.push(text.slice(i, i + NOTION_RICH_TEXT_MAX));
+  }
+  return parts;
+}
+
+function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function isLikelyImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url);
+}
+
+function chunkBlocks<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }

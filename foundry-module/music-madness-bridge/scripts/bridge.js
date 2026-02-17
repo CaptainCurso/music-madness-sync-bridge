@@ -22,7 +22,7 @@ Hooks.once("init", () => {
 
   game.modules.get(MODULE_ID).api = {
     socketEvent: SOCKET_EVENT,
-    version: "0.1.4"
+    version: "0.1.5"
   };
 });
 
@@ -86,10 +86,24 @@ async function handle(payload) {
         id: j.id,
         name: j.name,
         folderId: j.folder?.id ?? null,
+        folderPath: folderPathSegments(j.folder),
         createdAt: j._source?.createdTime ?? null,
         updatedAt: j._source?.sort ?? null
       }));
       return { ok: true, data: { journals: rows } };
+    }
+
+    if (action === "list_folders") {
+      const folders = game.folders.contents
+        .filter((f) => f.type === "JournalEntry")
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          parentId: f.folder?.id ?? null,
+          path: folderPathSegments(f)
+        }));
+
+      return { ok: true, data: { folders } };
     }
 
     if (action === "get_journal") {
@@ -99,17 +113,21 @@ async function handle(payload) {
       const pages = journal.pages.contents ?? [];
       const content = pages
         .map((p) => {
-          const html = p.text?.content ?? "";
+          const html = pageHtmlContent(p);
           return `<h3>${p.name}</h3>${html}`;
         })
         .join("\n\n");
+      const media = collectJournalMedia(journal);
 
       return {
         ok: true,
         data: {
           id: journal.id,
           name: journal.name,
+          folderId: journal.folder?.id ?? null,
+          folderPath: folderPathSegments(journal.folder),
           content,
+          media,
           aliases: [],
           updatedAt: new Date().toISOString()
         }
@@ -119,25 +137,74 @@ async function handle(payload) {
     if (action === "journal_media") {
       const journal = game.journal.get(payload?.journalId);
       if (!journal) return { ok: false, error: "Journal not found" };
-
-      const pages = journal.pages.contents ?? [];
-      const media = [];
-      const regex = /(?:src|href)=["']([^"']+)["']/gi;
-
-      for (const page of pages) {
-        const html = page.text?.content ?? "";
-        let match;
-        while ((match = regex.exec(html)) !== null) {
-          if (!match[1]) continue;
-          media.push({ sourceUrl: match[1] });
-        }
-      }
-
-      return { ok: true, data: { media } };
+      return { ok: true, data: { media: collectJournalMedia(journal) } };
     }
 
     return { ok: false, error: `Unknown action: ${action}` };
   } catch (error) {
     return { ok: false, error: String(error) };
   }
+}
+
+function folderPathSegments(folder) {
+  const path = [];
+  let current = folder ?? null;
+  while (current) {
+    if (current.name) path.unshift(String(current.name));
+    current = current.folder ?? null;
+  }
+  return path;
+}
+
+function pageHtmlContent(page) {
+  const textHtml = page?.text?.content;
+  if (textHtml && String(textHtml).trim()) return String(textHtml);
+
+  const imageSrc = pageImageSource(page);
+  if (imageSrc) {
+    const safeName = page?.name ? String(page.name) : "Image";
+    return `<p>${safeName}</p><img src="${imageSrc}" alt="${safeName}">`;
+  }
+
+  return "";
+}
+
+function pageImageSource(page) {
+  const candidates = [
+    page?.src,
+    page?.image?.src,
+    page?._source?.src,
+    page?._source?.image?.src
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = String(candidate).trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function collectJournalMedia(journal) {
+  const urls = new Set();
+
+  const journalImage = journal?.img ? String(journal.img).trim() : "";
+  if (journalImage) urls.add(journalImage);
+
+  const pages = journal?.pages?.contents ?? [];
+  const regex = /(?:src|href)=["']([^"']+)["']/gi;
+
+  for (const page of pages) {
+    const directImage = pageImageSource(page);
+    if (directImage) urls.add(directImage);
+
+    const html = pageHtmlContent(page);
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      if (!match[1]) continue;
+      const sourceUrl = String(match[1]).trim();
+      if (sourceUrl) urls.add(sourceUrl);
+    }
+  }
+
+  return [...urls].map((sourceUrl) => ({ sourceUrl }));
 }

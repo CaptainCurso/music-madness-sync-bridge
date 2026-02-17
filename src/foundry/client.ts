@@ -1,6 +1,6 @@
 import { extractMediaUrls, filenameFromUrl } from "../utils/media.js";
 import type { AppConfig } from "../config.js";
-import type { FoundryJournal, FoundryJournalSummary, FoundryMediaAsset } from "../types.js";
+import type { FoundryFolder, FoundryJournal, FoundryJournalSummary, FoundryMediaAsset } from "../types.js";
 
 export class FoundryClient {
   constructor(private readonly config: AppConfig) {}
@@ -27,6 +27,7 @@ export class FoundryClient {
       id: String(j.id),
       name: String(j.name ?? j.title ?? "Untitled Journal"),
       folderId: j.folderId ? String(j.folderId) : undefined,
+      folderPath: Array.isArray(j.folderPath) ? j.folderPath.map((x: unknown) => String(x)) : undefined,
       createdAt: j.createdAt ? String(j.createdAt) : undefined,
       updatedAt: j.updatedAt ? String(j.updatedAt) : undefined
     }));
@@ -57,6 +58,7 @@ export class FoundryClient {
       id: String(raw.id ?? journalId),
       name: String(raw.name ?? raw.title ?? "Untitled Journal"),
       folderId: raw.folderId ? String(raw.folderId) : undefined,
+      folderPath: Array.isArray(raw.folderPath) ? raw.folderPath.map((x: unknown) => String(x)) : undefined,
       createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
       updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
       aliases: Array.isArray(raw.aliases) ? raw.aliases.map((x: unknown) => String(x)) : [],
@@ -64,6 +66,16 @@ export class FoundryClient {
       content,
       media: mergedMedia
     };
+  }
+
+  async listFolders(): Promise<FoundryFolder[]> {
+    const raw = (await this.requestJson("/folders")) as { folders?: any[] };
+    return (raw.folders ?? []).map((f: any) => ({
+      id: String(f.id),
+      name: String(f.name ?? "Unnamed Folder"),
+      parentId: f.parentId ? String(f.parentId) : undefined,
+      path: Array.isArray(f.path) ? f.path.map((x: unknown) => String(x)) : undefined
+    }));
   }
 
   async exportJournalMedia(journalId: string): Promise<FoundryMediaAsset[]> {

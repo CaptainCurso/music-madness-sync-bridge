@@ -4,6 +4,7 @@ export interface FoundryJournalSummary {
   id: string;
   name: string;
   folderId?: string;
+  folderPath?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -21,6 +22,13 @@ export interface FoundryJournal extends FoundryJournalSummary {
   type?: string;
   aliases?: string[];
   media?: FoundryMediaAsset[];
+}
+
+export interface FoundryFolder {
+  id: string;
+  name: string;
+  parentId?: string;
+  path?: string[];
 }
 
 export interface SyncMap {
