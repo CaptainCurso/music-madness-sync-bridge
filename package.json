@@ -1,6 +1,6 @@
 {
   "name": "music-madness-sync-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "FoundryVTT <-> Notion Story Bible sync bridge with MCP tools",
   "type": "module",
   "main": "dist/src/cli.js",

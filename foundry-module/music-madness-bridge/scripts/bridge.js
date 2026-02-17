@@ -22,14 +22,19 @@ Hooks.once("init", () => {
 
   game.modules.get(MODULE_ID).api = {
     socketEvent: SOCKET_EVENT,
-    version: "0.1.0"
+    version: "0.1.1"
   };
 });
 
 Hooks.once("ready", () => {
-  game.socket.on(SOCKET_EVENT, async (payload, respond) => {
+  game.socket.on(SOCKET_EVENT, async (payload) => {
+    if (payload?.__mmBridgeResponse) return;
     const reply = await handle(payload);
-    if (typeof respond === "function") respond(reply);
+    game.socket.emit(SOCKET_EVENT, {
+      __mmBridgeResponse: true,
+      requestId: payload?.requestId ?? null,
+      reply
+    });
   });
 });
 

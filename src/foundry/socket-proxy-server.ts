@@ -1,5 +1,7 @@
 import express from "express";
 import { io, type Socket } from "socket.io-client";
+import "dotenv/config";
+import { randomUUID } from "node:crypto";
 
 const PROXY_HOST = process.env.FOUNDRY_PROXY_HOST ?? "127.0.0.1";
 const PROXY_PORT = Number(process.env.FOUNDRY_PROXY_PORT ?? 8788);
@@ -131,7 +133,9 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
     throw new Error("Foundry socket is not connected. Verify session cookie/world id and that Foundry is running.");
   }
 
+  const requestId = randomUUID();
   const requestPayload = {
+    requestId,
     token: FOUNDRY_BRIDGE_TOKEN,
     action,
     ...payload
@@ -139,16 +143,25 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
+      socket.off(FOUNDRY_SOCKET_EVENT, onMessage);
       reject(new Error(`Timeout waiting for Foundry module response for action '${action}'`));
     }, REQUEST_TIMEOUT_MS);
 
-    socket.emit(FOUNDRY_SOCKET_EVENT, requestPayload, (response: any) => {
+    const onMessage = (message: any) => {
+      if (!message?.__mmBridgeResponse) return;
+      if (message?.requestId !== requestId) return;
+
       clearTimeout(timeout);
+      socket.off(FOUNDRY_SOCKET_EVENT, onMessage);
+      const response = message?.reply;
       if (!response?.ok) {
         reject(new Error(response?.error ?? "Unknown module error"));
         return;
       }
       resolve(response.data);
-    });
+    };
+
+    socket.on(FOUNDRY_SOCKET_EVENT, onMessage);
+    socket.emit(FOUNDRY_SOCKET_EVENT, requestPayload);
   });
 }
