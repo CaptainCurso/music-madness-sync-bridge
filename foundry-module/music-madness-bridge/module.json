@@ -22,8 +22,8 @@
       "path": "lang/en.json"
     }
   ],
-  "url": "",
-  "manifest": "",
-  "download": "",
+  "url": "https://github.com/CaptainCurso/music-madness-sync-bridge",
+  "manifest": "https://raw.githubusercontent.com/CaptainCurso/music-madness-sync-bridge/main/foundry-module/music-madness-bridge/module.json",
+  "download": "https://github.com/CaptainCurso/music-madness-sync-bridge/releases/download/v0.1.0/music-madness-bridge-v0.1.0.zip",
   "license": "MIT"
 }

@@ -42,9 +42,9 @@ fs.mkdirSync(releaseDir, { recursive: true });
 
 const outputZip = path.join(releaseDir, `music-madness-bridge-v${version}.zip`);
 
-// Build a zip containing the module folder root.
+// Build a zip containing the module folder root and exclude macOS metadata files.
 execSync(
-  `cd ${shellQuote(path.join(root, "foundry-module"))} && zip -r ${shellQuote(outputZip)} music-madness-bridge`,
+  `cd ${shellQuote(path.join(root, "foundry-module"))} && zip -r ${shellQuote(outputZip)} music-madness-bridge -x '*.DS_Store'`,
   { stdio: "inherit" }
 );
 
