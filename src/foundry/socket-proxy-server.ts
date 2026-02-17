@@ -171,7 +171,8 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
     };
 
     const onEnvelopeMessage = (envelope: any) => {
-      if (!envelope || envelope.action !== FOUNDRY_SOCKET_EVENT) return;
+      const kind = envelope?.action ?? envelope?.type;
+      if (!envelope || kind !== FOUNDRY_SOCKET_EVENT) return;
       const message = envelope.data;
       if (!message?.__mmBridgeResponse) return;
       if (message?.requestId !== requestId) return;
@@ -190,6 +191,15 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
     });
     // Compatibility with Foundry deployments that route custom socket traffic through
     // the generic "message" event envelope.
-    socket.emit("message", { action: FOUNDRY_SOCKET_EVENT, data: requestPayload });
+    socket.emit("message", { action: FOUNDRY_SOCKET_EVENT, data: requestPayload }, (ackResponse: any) => {
+      if (ackResponse && typeof ackResponse === "object") {
+        finalize(ackResponse);
+      }
+    });
+    socket.emit("message", { type: FOUNDRY_SOCKET_EVENT, data: requestPayload }, (ackResponse: any) => {
+      if (ackResponse && typeof ackResponse === "object") {
+        finalize(ackResponse);
+      }
+    });
   });
 }
