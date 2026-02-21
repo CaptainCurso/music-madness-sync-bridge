@@ -2,7 +2,7 @@
   "id": "music-madness-bridge",
   "title": "Music and Madness Bridge",
   "description": "Authenticated journal/media read bridge for external sync services.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
@@ -25,6 +25,6 @@
   "socket": true,
   "url": "https://github.com/CaptainCurso/music-madness-sync-bridge",
   "manifest": "https://raw.githubusercontent.com/CaptainCurso/music-madness-sync-bridge/main/foundry-module/music-madness-bridge/module.json",
-  "download": "https://github.com/CaptainCurso/music-madness-sync-bridge/releases/download/v0.1.6/music-madness-bridge-v0.1.6.zip",
+  "download": "https://github.com/CaptainCurso/music-madness-sync-bridge/releases/download/v0.1.7/music-madness-bridge-v0.1.7.zip",
   "license": "MIT"
 }

@@ -1,7 +1,17 @@
 const MODULE_ID = "music-madness-bridge";
 const SOCKET_EVENT = `module.${MODULE_ID}`;
+const DEBUG_PREFIX = "[MMBridgeDebug]";
+
+function debugLog(message, data) {
+  if (data !== undefined) {
+    console.log(`${DEBUG_PREFIX} ${message}`, data);
+    return;
+  }
+  console.log(`${DEBUG_PREFIX} ${message}`);
+}
 
 Hooks.once("init", () => {
+  debugLog("init hook fired");
   game.settings.register(MODULE_ID, "bridgeToken", {
     name: "MMBridge.Settings.BridgeToken.Name",
     hint: "MMBridge.Settings.BridgeToken.Hint",
@@ -22,14 +32,31 @@ Hooks.once("init", () => {
 
   game.modules.get(MODULE_ID).api = {
     socketEvent: SOCKET_EVENT,
-    version: "0.1.6"
+    version: "0.1.7"
   };
+  debugLog("module API registered", game.modules.get(MODULE_ID).api);
 });
 
 Hooks.once("ready", () => {
+  debugLog("ready hook fired", {
+    worldId: game.world?.id ?? null,
+    userId: game.user?.id ?? null,
+    isGM: Boolean(game.user?.isGM)
+  });
   const onPayload = async (payload, respond) => {
     if (payload?.__mmBridgeResponse) return;
+    debugLog("onPayload received", {
+      action: payload?.action ?? null,
+      requestId: payload?.requestId ?? null,
+      hasToken: Boolean(payload?.token),
+      hasRespondCallback: typeof respond === "function"
+    });
     const reply = await handle(payload);
+    debugLog("onPayload reply", {
+      requestId: payload?.requestId ?? null,
+      ok: reply?.ok ?? null,
+      error: reply?.error ?? null
+    });
     if (typeof respond === "function") {
       respond(reply);
     }
@@ -54,11 +81,17 @@ Hooks.once("ready", () => {
   };
 
   game.socket.on(SOCKET_EVENT, onPayload);
+  debugLog("socket listener attached", { event: SOCKET_EVENT });
   game.socket.on("message", async (...args) => {
     // Shape A: object envelope { action|type, data }, optional respond callback.
     const envelope = args[0];
     const respond = typeof args[1] === "function" ? args[1] : undefined;
     const kind = envelope?.action ?? envelope?.type;
+    debugLog("message event observed", {
+      shape: envelope && typeof envelope === "object" ? "object" : "positional_or_other",
+      kind: kind ?? null,
+      argCount: args.length
+    });
     if (envelope && kind === SOCKET_EVENT) {
       await onPayload(envelope.data, respond);
       return;
@@ -75,12 +108,22 @@ Hooks.once("ready", () => {
 
 async function handle(payload) {
   try {
+    debugLog("handle entered", {
+      action: payload?.action ?? null,
+      requestId: payload?.requestId ?? null
+    });
     if (!game.settings.get(MODULE_ID, "readEnabled")) {
+      debugLog("read bridge disabled");
       return { ok: false, error: "Read bridge is disabled." };
     }
 
     const token = game.settings.get(MODULE_ID, "bridgeToken");
     if (!token || payload?.token !== token) {
+      debugLog("token mismatch", {
+        hasConfiguredToken: Boolean(token),
+        providedTokenLength: payload?.token ? String(payload.token).length : 0,
+        configuredTokenLength: token ? String(token).length : 0
+      });
       return { ok: false, error: "Unauthorized" };
     }
 
