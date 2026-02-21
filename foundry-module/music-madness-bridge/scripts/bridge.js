@@ -22,7 +22,7 @@ Hooks.once("init", () => {
 
   game.modules.get(MODULE_ID).api = {
     socketEvent: SOCKET_EVENT,
-    version: "0.1.5"
+    version: "0.1.6"
   };
 });
 
@@ -46,13 +46,30 @@ Hooks.once("ready", () => {
         reply
       }
     });
+    game.socket.emit("message", SOCKET_EVENT, {
+      __mmBridgeResponse: true,
+      requestId: payload?.requestId ?? null,
+      reply
+    });
   };
 
   game.socket.on(SOCKET_EVENT, onPayload);
-  game.socket.on("message", async (envelope, respond) => {
+  game.socket.on("message", async (...args) => {
+    // Shape A: object envelope { action|type, data }, optional respond callback.
+    const envelope = args[0];
+    const respond = typeof args[1] === "function" ? args[1] : undefined;
     const kind = envelope?.action ?? envelope?.type;
-    if (!envelope || kind !== SOCKET_EVENT) return;
-    await onPayload(envelope.data, respond);
+    if (envelope && kind === SOCKET_EVENT) {
+      await onPayload(envelope.data, respond);
+      return;
+    }
+
+    // Shape B: positional envelope "message", eventName, payload, optional respond callback.
+    const eventName = args[0];
+    const payload = args[1];
+    const positionalRespond = typeof args[2] === "function" ? args[2] : undefined;
+    if (eventName !== SOCKET_EVENT) return;
+    await onPayload(payload, positionalRespond);
   });
 });
 

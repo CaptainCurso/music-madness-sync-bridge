@@ -13,6 +13,10 @@ const FOUNDRY_WORLD = process.env.FOUNDRY_WORLD;
 const FOUNDRY_BRIDGE_TOKEN = process.env.FOUNDRY_BRIDGE_TOKEN;
 const FOUNDRY_SOCKET_EVENT = process.env.FOUNDRY_SOCKET_EVENT ?? "module.music-madness-bridge";
 const FOUNDRY_SOCKET_NAMESPACE = process.env.FOUNDRY_SOCKET_NAMESPACE ?? "";
+const FOUNDRY_SOCKET_TRANSPORTS = (process.env.FOUNDRY_SOCKET_TRANSPORTS ?? "polling,websocket")
+  .split(",")
+  .map((item) => item.trim())
+  .filter((item): item is "polling" | "websocket" => item === "polling" || item === "websocket");
 const DEBUG_FOUNDRY_SOCKET = process.env.DEBUG_FOUNDRY_SOCKET === "1";
 const FOUNDRY_INCLUDE_WORLD_QUERY = process.env.FOUNDRY_INCLUDE_WORLD_QUERY === "1";
 const DEBUG_EVENT_LIMIT = 200;
@@ -75,9 +79,19 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-app.get("/journals", async (_req, res) => {
+app.get("/journals", async (req, res) => {
   try {
-    const data = await callModuleAction("list_journals", {});
+    const payload: Record<string, unknown> = {};
+    const folder = typeof req.query.folder === "string" ? req.query.folder.trim() : "";
+    const updatedAfter = typeof req.query.updated_after === "string" ? req.query.updated_after.trim() : "";
+    const limitRaw = typeof req.query.limit === "string" ? req.query.limit.trim() : "";
+    const limit = Number.parseInt(limitRaw, 10);
+
+    if (folder) payload.folder = folder;
+    if (updatedAfter) payload.updatedAfter = updatedAfter;
+    if (Number.isFinite(limit) && limit > 0) payload.limit = limit;
+
+    const data = await callModuleAction("list_journals", payload);
     res.json({ journals: data.journals ?? [] });
   } catch (error) {
     res.status(502).json({ error: String(error) });
@@ -155,7 +169,7 @@ function buildSocketClient(args: { siteUrl: string; sessionCookie: string; world
 
   return io(socketUrl, {
     path: "/socket.io",
-    transports: ["websocket", "polling"],
+    transports: FOUNDRY_SOCKET_TRANSPORTS.length ? FOUNDRY_SOCKET_TRANSPORTS : ["polling", "websocket"],
     withCredentials: true,
     extraHeaders: headers,
     query,
@@ -198,7 +212,13 @@ async function callModuleAction(action: string, payload: Record<string, unknown>
       pushDebug(
         `timeout action=${action} requestId=${requestId} socketConnected=${socket.connected} socketId=${socket.id ?? "none"}`
       );
-      reject(new Error(`Timeout waiting for Foundry module response for action '${action}'`));
+      reject(
+        new Error(
+          `Timeout waiting for Foundry module response for action '${action}'. ` +
+            "Socket is connected but no module reply was received. " +
+            "Verify module is enabled in the active world, bridge token matches, and at least one browser client is open in that world."
+        )
+      );
     }, REQUEST_TIMEOUT_MS);
 
     const finalize = (response: any) => {
